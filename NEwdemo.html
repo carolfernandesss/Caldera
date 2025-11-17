@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Caldera Live Demo - Tracking and Delivery Status</title>
+    
+    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700&display=swap" rel="stylesheet">
+    
+    <style>
+        /* Define Colors and Typography */
+        :root {
+            --darkest-red: #800000; /* Dark Maroon/Darkest Red */
+            --peach-off-white: #FFE5B4; /* Off-White leaning into Peach */
+            --primary-font: 'Playfair Display', serif;
+        }
+
+        body {
+            font-family: var(--primary-font);
+            background-color: var(--darkest-red);
+            color: var(--peach-off-white);
+            padding: 30px; 
+            margin: 0;
+            line-height: 1.6; /* Ample spacing */
+        }
+
+        .section-header {
+            text-align: center;
+            font-size: 2.2em;
+            margin-bottom: 25px;
+            padding: 10px 0;
+            border-bottom: 3px solid #B22222;
+        }
+
+        /* Container for Driver Emitter on Mobile */
+        #emitter-section {
+            max-width: 450px;
+            margin: 40px auto 60px auto;
+            border: 2px solid var(--peach-off-white);
+        }
+        
+        /* Dashboard for Receiver/
+        #dashboard-section {
+            display: flex;
+            height: 700px;
+            margin-top: 50px;
+            gap: 20px;
+        }
+
+        .container {
+            background: rgba(0, 0, 0, 0.3);
+            padding: 30px;
+            border-radius: 12px;
+        }
+
+        /* Form and Input Styles */
+        input[type="text"], button {
+            width: 100%;
+            padding: 12px;
+            margin-top: 10px;
+            margin-bottom: 10px;
+            border-radius: 6px;
+            border: 1px solid var(--peach-off-white);
+            box-sizing: border-box;
+            font-family: var(--primary-font);
+            background-color: var(--peach-off-white);
+            color: var(--darkest-red);
+        }
+        
+        button {
+            background-color: #A52A2A; 
+            color: white;
+            border: none;
+            font-weight: bold;
+            cursor: pointer;
+        }
+
+        .data-display {
+            padding: 15px;
+            border: 1px dashed var(--peach-off-white);
+            background-color: rgba(255, 255, 255, 0.1);
+            border-radius: 6px;
+        }
+        
+        .status-active { background-color: #008000; color: white; padding: 5px; border-radius: 3px; }
+        
+        /* Dashboard Specific Styles */
+        #map { flex: 3; height: 100%; min-height: 500px; border-radius: 8px; }
+        #data-panel { flex: 1; overflow-y: auto; padding: 20px; border: 2px solid var(--peach-off-white); background: rgba(0, 0, 0, 0.3); border-radius: 8px; }
+        
+        table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+        th, td { border: 1px solid #B22222; padding: 12px 8px; text-align: left; font-size: 0.9em; background-color: rgba(255, 255, 255, 0.05); color: var(--peach-off-white); }
+        th { background-color: #A52A2A; color: white; font-weight: bold; }
+        tr:hover, tr.active-row { background-color: #B22222; cursor: pointer; }
+        
+        .detail-row { font-size: 0.8em; background-color: #A52A2A; display: none; }
+        .delivered { color: #00FF00; font-weight: bold; }
+        .pending { color: #FFFF00; font-weight: bold; }
+        .detail-item { display: block; margin-top: 5px;}
+
+    </style>
+
+    <script async defer src="https://maps.googleapis.com/maps/api/js?key=AIzaSyC0Tow6zrxaOLvm9eouLJOE5I5OOXgWGwU&callback=initMap"></script>
+</head>
+<body>
+
+    <div class="section-header">LIVE TRACKING</div>
+    
+    <div id="emitter-section" class="container">
+        <h2 style="text-align: center;">DRIVER/MOBILE APP INTERFACE (EMITTER)</h2>
+        
+        <form id="driverForm">
+            <label for="driverName">Driver ID / Shipment ID (Use SHIP-01, SHIP-02, SHIP-03,SHIP-04):</label>
+            <input type="text" id="driverName" required placeholder="Examples: Jerome, Carol, Anish, Nabeela, Shaji">
+            
+            <button type="submit" id="startButton">Start Live Tracking</button>
+        </form>
+
+        <div class="data-display">
+            <p><strong>Tracking Status:</strong> <span id="statusMessage">Awaiting Start...</span></p>
+            <p><strong>Last Sent Address:</strong> <span id="addressDisplay">N/A</span></p>
+            <p><strong>Last Sent Time:</strong> <span id="timeDisplay">N/A</span></p>
+            <p><strong>Last Sent Coords:</strong> <span id="coordsDisplay">N/A</span></p>
+        </div>
+
+        <div id="checklist-panel" style="margin-top: 30px; display: none;">
+            <h3>Parcel Delivery Checklist</h3>
+            <div id="parcelList">
+                </div>
+        </div>
+    </div>
+
+    <div id="dashboard-section-container" class="container">
+        <h2 style="text-align: center;">RECEIVER'S PANEL</h2>
+        <div id="dashboard-section">
+            
+            <div id="data-panel">
+                <h3>Shipment Status List</h3>
+                <p style="font-size: 0.9em;">Click any shipment ID to center the map and view live details.</p>
+                <table id="shipmentTable">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Status</th>
+                            <th>Last Update</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        </tbody>
+                </table>
+            </div>
+
+            <div id="map"></div>
+        </div>
+    </div>
+
+    <script>
+        // ----------------------------------------------------
+        // --- 1. CONFIGURATION & DATA (Local Storage Simulation) ---
+        // ----------------------------------------------------
+        const UPDATE_INTERVAL_MS = 5000; 
+        const REFRESH_INTERVAL_MS = 10000; 
+        
+        // ** INITIAL PARCEL DATA with required names **
+        const INITIAL_PARCEL_DATA = {
+            "SHIP-01": [ // Maps to Jerome and Carol
+                { parcel_id: "P-1001", recipient: "Jerome", load: "High-Value Apparel", address: "123 Apparel Street", status: "Pending" },
+                { parcel_id: "P-1002", recipient: "Ms. Carol", load: "Pharma Cold Chain", address: "456 Pharma Lane", status: "Pending" }
+            ],
+            "SHIP-02": [ // Maps to Anish and Shaji
+                { parcel_id: "P-2001", recipient: "Anish", load: "Automotive Parts", address: "789 Auto Workshop", status: "Pending" },
+                { parcel_id: "P-2002", recipient: "Shaji", load: "Frozen Food Cargo", address: "101 Frozen Foods", status: "Pending" }
+            ],
+            "SHIP-03": [ // Maps to Nabeela
+                { parcel_id: "P-3001", recipient: "Nabeela", load: "Electronics Shipment", address: "202 Tech Park", status: "Pending" }
+            ],
+            "SHIP-04": [ // Maps to Rida, Navin, Riza, Princita (Placeholder Run)
+                { parcel_id: "P-4001", recipient: "Rida", load: "Bulk Goods", address: "900 Warehouse Zone", status: "Pending" },
+                { parcel_id: "P-4002", recipient: "Navin", load: "Bulk Goods", address: "901 Warehouse Zone", status: "Pending" },
+                { parcel_id: "P-4003", recipient: "Riza", load: "Bulk Goods", address: "902 Warehouse Zone", status: "Pending" },
+                { parcel_id: "P-4004", recipient: "Princita", load: "Bulk Goods", address: "903 Warehouse Zone", status: "Pending" }
+            ]
+        };
+
+        const LIVE_DATA_KEY = 'caldera_live_tracking_data';
+        const LIVE_PARCEL_KEY = 'caldera_parcel_status';
+
+        // ----------------------------------------------------
+        // --- 2. GLOBAL VARIABLES & PERSISTENCE ---
+        // ----------------------------------------------------
+        let watchID; 
+        let driverIdentifier = null;
+        let map;
+        let markers = {};
+        let lastActiveRow = null;
+        let geocoder; 
+
+        // --- Data Persistence Functions ---
+        function getLiveStatus() {
+            try {
+                return JSON.parse(localStorage.getItem(LIVE_DATA_KEY)) || {};
+            } catch (e) { return {}; }
+        }
+
+        function setLiveStatus(data) {
+            localStorage.setItem(LIVE_DATA_KEY, JSON.stringify(data));
+        }
+
+        function getParcelData() {
+            try {
+                let parcels = JSON.parse(localStorage.getItem(LIVE_PARCEL_KEY));
+                if (!parcels || Object.keys(parcels).length === 0) {
+                    localStorage.setItem(LIVE_PARCEL_KEY, JSON.stringify(INITIAL_PARCEL_DATA));
+                    parcels = INITIAL_PARCEL_DATA;
+                }
+                return parcels;
+            } catch (e) { return INITIAL_PARCEL_DATA; }
+        }
+
+        function setParcelData(data) {
+            localStorage.setItem(LIVE_PARCEL_KEY, JSON.stringify(data));
+        }
+
+
+        // ----------------------------------------------------
+        // --- 3. DRIVER EMITTER LOGIC (MOBILE) ---
+        // ----------------------------------------------------
+
+        // Reverse Geocoding using Google Maps API (Requires API Key to work)
+        function getAddressFromCoords(lat, lon) {
+            document.getElementById('addressDisplay').textContent = "Fetching Address...";
+            if (!geocoder) {
+                document.getElementById('addressDisplay').textContent = "Geocoder not initialized.";
+                return;
+            }
+
+            const latlng = { lat: lat, lng: lon };
+            geocoder.geocode({ 'location': latlng })
+                .then((response) => {
+                    if (response.results[0]) {
+                        document.getElementById('addressDisplay').textContent = response.results[0].formatted_address;
+                    } else {
+                        document.getElementById('addressDisplay').textContent = 'Address not found.';
+                    }
+                })
+                .catch((e) => {
+                    console.error("Geocoder failed due to: " + e);
+                    document.getElementById('addressDisplay').textContent = `Geocoder error. (${lat.toFixed(4)}, ${lon.toFixed(4)})`;
+                });
+        }
+
+        function updateLiveData(position) {
+            const lat = position.coords.latitude;
+            const lon = position.coords.longitude;
+            const timestamp = new Date().toISOString();
+            
+            let liveStatus = getLiveStatus();
+            liveStatus[driverIdentifier] = {
+                lat: lat,
+                lon: lon,
+                timestamp: timestamp
+            };
+            setLiveStatus(liveStatus);
+
+            getAddressFromCoords(lat, lon);
+            document.getElementById('coordsDisplay').textContent = `${lat.toFixed(6)}, ${lon.toFixed(6)}`;
+            document.getElementById('timeDisplay').textContent = new Date().toLocaleTimeString();
+        }
+
+        function startLocationWatch() {
+            if (!("geolocation" in navigator)) {
+                alert("Geolocation is not supported by your browser or device.");
+                return;
+            }
+
+            const options = { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 };
+            
+            watchID = navigator.geolocation.watchPosition(updateLiveData, positionError, options);
+
+            loadDriverChecklist();
+
+            document.getElementById('statusMessage').textContent = 'Tracking ACTIVE - GO! GO! GO!';
+            document.getElementById('statusMessage').className = 'status-tracking status-active';
+            document.getElementById('checklist-panel').style.display = 'block';
+        }
+
+        function positionError(error) {
+            console.error("Geolocation Error:", error.message);
+            alert(`Error getting location: ${error.message}`);
+        }
+        
+        // --- DRIVER CHECKLIST LOGIC ---
+        function loadDriverChecklist() {
+            const parcels = getParcelData();
+            const driverParcels = parcels[driverIdentifier] || [];
+            const listDiv = document.getElementById('parcelList');
+            listDiv.innerHTML = '';
+            
+            if (driverParcels.length === 0) {
+                listDiv.innerHTML = "<p>No parcels assigned to this route.</p>";
+                return;
+            }
+
+            driverParcels.forEach(p => {
+                const label = document.createElement('label');
+                label.style.display = 'block';
+                label.style.marginTop = '10px';
+                label.innerHTML = `
+                    <input type="checkbox" data-parcel-id="${p.parcel_id}" ${p.status === 'Delivered' ? 'checked disabled' : ''} 
+                           onchange="markDelivered(this)">
+                    <span style="font-weight: bold;">${p.parcel_id}:</span> ${p.load} to ${p.recipient} 
+                    <span style="float: right; color: ${p.status === 'Delivered' ? '#00FF00' : '#FFFF00'};">(${p.status})</span>
+                    <span class="detail-item" style="font-size: 0.85em;">Address: ${p.address}</span>
+                `;
+                listDiv.appendChild(label);
+            });
+        }
+
+        function markDelivered(checkbox) {
+            const parcelId = checkbox.dataset.parcelId;
+            let parcels = getParcelData();
+            
+            if (parcels[driverIdentifier]) {
+                const index = parcels[driverIdentifier].findIndex(p => p.parcel_id === parcelId);
+                if (index !== -1) {
+                    parcels[driverIdentifier][index].status = checkbox.checked ? 'Delivered' : 'Pending';
+                    setParcelData(parcels);
+                    checkbox.disabled = checkbox.checked; 
+                    loadDriverChecklist(); 
+                }
+            }
+        }
+
+        document.getElementById('driverForm').addEventListener('submit', function(event) {
+            event.preventDefault(); 
+            driverIdentifier = document.getElementById('driverName').value.trim().toUpperCase();
+
+            if (INITIAL_PARCEL_DATA[driverIdentifier] && !watchID) {
+                startLocationWatch();
+                document.getElementById('driverName').disabled = true;
+                document.getElementById('startButton').disabled = true;
+                document.getElementById('startButton').textContent = 'Tracking Active...';
+            } else {
+                alert("Please enter a valid Demo Driver ID (SHIP-01, SHIP-02, SHIP-03, or SHIP-04) to start tracking.");
+            }
+        });
+
+
+        // ----------------------------------------------------
+        // --- 4. RECEIVER DASHBOARD LOGIC (LAPTOP/DESKTOP) ---
+        // ----------------------------------------------------
+        
+        function initMap() {
+            geocoder = new google.maps.Geocoder();
+            
+            map = new google.maps.Map(document.getElementById('map'), {
+                center: { lat: 20.5937, lng: 78.9629 }, 
+                zoom: 5
+            });
+
+            fetchAndUpdateData();
+            setInterval(fetchAndUpdateData, REFRESH_INTERVAL_MS);
+        }
+
+        function fetchAndUpdateData() {
+            const liveStatus = getLiveStatus();
+            const parcelData = getParcelData();
+            const tbody = document.getElementById('shipmentTable').querySelector('tbody');
+            tbody.innerHTML = ''; 
+            let shipments = Object.keys(liveStatus);
+
+            shipments.forEach(shipmentId => {
+                const status = liveStatus[shipmentId];
+                const position = { lat: status.lat, lng: status.lon };
+                const driverParcels = parcelData[shipmentId] || [];
+                const parcelsPending = driverParcels.filter(p => p.status === 'Pending').length;
+                const overallStatus = parcelsPending > 0 ? `<span class="pending">${parcelsPending} Pending</span>` : `<span class="delivered">All Done!</span>`;
+
+                // a) Update/Create Map Marker
+                if (markers[shipmentId]) {
+                    markers[shipmentId].setPosition(position);
+                } else {
+                    markers[shipmentId] = new google.maps.Marker({
+                        position: position,
+                        map: map,
+                        title: shipmentId,
+                        icon: { path: google.maps.SymbolPath.FORWARD_CLOSED_ARROW, scale: 5, fillOpacity: 0.9, fillColor: '#FFFDD0', strokeColor: '#990000' }
+                    });
+                }
+
+                // b) Create Main Table Row
+                const tr = document.createElement('tr');
+                tr.innerHTML = `<td><a href="#" style="color: var(--peach-off-white); text-decoration: none;" 
+                                onclick="event.preventDefault(); centerMap('${shipmentId}', this.parentNode.parentNode);">
+                                ${shipmentId}</a></td>
+                                <td>${overallStatus}</td>
+                                <td>${new Date(status.timestamp).toLocaleTimeString()}</td>`;
+                tr.onclick = () => centerMap(shipmentId, tr);
+                tbody.appendChild(tr);
+
+                // c) Create Detail Row (Hyperlinked Details)
+                const detailTr = document.createElement('tr');
+                detailTr.className = 'detail-row ' + shipmentId;
+                let detailContent = `<strong>Shipment Status:</strong><br>`;
+                driverParcels.forEach(p => {
+                    detailContent += `<span style="color: ${p.status === 'Delivered' ? '#00FF00' : '#FFFF00'};">◉</span> ${p.parcel_id}: ${p.load} to ${p.recipient} (${p.address})<br>`;
+                });
+                detailContent += `<br><strong>Live Coords:</strong> ${status.lat.toFixed(6)}, ${status.lon.toFixed(6)}`;
+                detailTr.innerHTML = `<td colspan="3">${detailContent}</td>`;
+                tbody.appendChild(detailTr);
+            });
+        }
+
+        // --- 5. TABLE CLICK HANDLER (Hyperlinked Action) ---
+        function centerMap(shipmentId, clickedRow) {
+            if (lastActiveRow) {
+                lastActiveRow.classList.remove('active-row');
+                const prevDetailRow = document.querySelector('.detail-row.' + lastActiveRow.id);
+                if (prevDetailRow) prevDetailRow.style.display = 'none';
+            }
+
+            const position = markers[shipmentId].getPosition();
+            map.panTo(position);
+            map.setZoom(14); 
+
+            clickedRow.classList.add('active-row');
+            clickedRow.id = shipmentId;
+            const newDetailRow = document.querySelector('.detail-row.' + shipmentId);
+            if (newDetailRow) newDetailRow.style.display = 'table-row';
+            lastActiveRow = clickedRow;
+        }
+
+        window.initMap = initMap;
+    </script>
+</body>
+</html>
