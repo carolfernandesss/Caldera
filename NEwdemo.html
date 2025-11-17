@@ -39,7 +39,7 @@
             border: 2px solid var(--peach-off-white);
         }
         
-        /* Dashboard for Receiver/
+        /* Dashboard for Receiver/Judges */
         #dashboard-section {
             display: flex;
             height: 700px;
@@ -104,22 +104,22 @@
 </head>
 <body>
 
-    <div class="section-header">LIVE TRACKING</div>
+    <div class="section-header">🔴 LIVE TRACKING DEMO FOR JUDGES 🔴</div>
     
     <div id="emitter-section" class="container">
         <h2 style="text-align: center;">DRIVER/MOBILE APP INTERFACE (EMITTER)</h2>
         
         <form id="driverForm">
-            <label for="driverName">Driver ID / Shipment ID (Use SHIP-01, SHIP-02, SHIP-03,SHIP-04):</label>
-            <input type="text" id="driverName" required placeholder="Examples: Jerome, Carol, Anish, Nabeela, Shaji">
+            <label for="driverName">Driver ID / Shipment ID (Use SHIP-01, SHIP-02, SHIP-03, or SHIP-04):</label>
+            <input type="text" id="driverName" required placeholder="Examples: SHIP-01 (Jerome), SHIP-02 (Anish), etc.">
             
             <button type="submit" id="startButton">Start Live Tracking</button>
         </form>
 
         <div class="data-display">
             <p><strong>Tracking Status:</strong> <span id="statusMessage">Awaiting Start...</span></p>
+            <p><strong>Data Logging:</strong> <span id="spreadsheetStatus">Ready to put data in spreadsheet</span></p>
             <p><strong>Last Sent Address:</strong> <span id="addressDisplay">N/A</span></p>
-            <p><strong>Last Sent Time:</strong> <span id="timeDisplay">N/A</span></p>
             <p><strong>Last Sent Coords:</strong> <span id="coordsDisplay">N/A</span></p>
         </div>
 
@@ -161,20 +161,23 @@
         const UPDATE_INTERVAL_MS = 5000; 
         const REFRESH_INTERVAL_MS = 10000; 
         
-        // ** INITIAL PARCEL DATA with required names **
+        // *** THE SPREADSHEET DATA COLLECTOR URL (Your Google Apps Script Web App) ***
+        const SPREADSHEET_DATA_COLLECTOR_URL = 'https://script.google.com/macros/s/AKfycbwV-pEbvAjzEr9_w7_x1c6Qfuozthcl1sgCLwt-wwPMNugj_u6hmeFncU0OxtktN85U/exec'; 
+
+        // ** INITIAL PARCEL DATA (used for map display and checklist) **
         const INITIAL_PARCEL_DATA = {
-            "SHIP-01": [ // Maps to Jerome and Carol
+            "SHIP-01": [ // Jerome and Carol
                 { parcel_id: "P-1001", recipient: "Jerome", load: "High-Value Apparel", address: "123 Apparel Street", status: "Pending" },
                 { parcel_id: "P-1002", recipient: "Ms. Carol", load: "Pharma Cold Chain", address: "456 Pharma Lane", status: "Pending" }
             ],
-            "SHIP-02": [ // Maps to Anish and Shaji
+            "SHIP-02": [ // Anish and Shaji
                 { parcel_id: "P-2001", recipient: "Anish", load: "Automotive Parts", address: "789 Auto Workshop", status: "Pending" },
                 { parcel_id: "P-2002", recipient: "Shaji", load: "Frozen Food Cargo", address: "101 Frozen Foods", status: "Pending" }
             ],
-            "SHIP-03": [ // Maps to Nabeela
+            "SHIP-03": [ // Nabeela
                 { parcel_id: "P-3001", recipient: "Nabeela", load: "Electronics Shipment", address: "202 Tech Park", status: "Pending" }
             ],
-            "SHIP-04": [ // Maps to Rida, Navin, Riza, Princita (Placeholder Run)
+            "SHIP-04": [ // Rida, Navin, Riza, Princita
                 { parcel_id: "P-4001", recipient: "Rida", load: "Bulk Goods", address: "900 Warehouse Zone", status: "Pending" },
                 { parcel_id: "P-4002", recipient: "Navin", load: "Bulk Goods", address: "901 Warehouse Zone", status: "Pending" },
                 { parcel_id: "P-4003", recipient: "Riza", load: "Bulk Goods", address: "902 Warehouse Zone", status: "Pending" },
@@ -195,11 +198,9 @@
         let lastActiveRow = null;
         let geocoder; 
 
-        // --- Data Persistence Functions ---
+        // --- Data Persistence Functions (Uses Local Storage for Map Display) ---
         function getLiveStatus() {
-            try {
-                return JSON.parse(localStorage.getItem(LIVE_DATA_KEY)) || {};
-            } catch (e) { return {}; }
+            try { return JSON.parse(localStorage.getItem(LIVE_DATA_KEY)) || {}; } catch (e) { return {}; }
         }
 
         function setLiveStatus(data) {
@@ -225,14 +226,32 @@
         // ----------------------------------------------------
         // --- 3. DRIVER EMITTER LOGIC (MOBILE) ---
         // ----------------------------------------------------
+        
+        // Function to send data to the Google Sheet endpoint
+        async function sendDataToCloudSheet(dataPayload) {
+             try {
+                document.getElementById('spreadsheetStatus').textContent = "Putting data in spreadsheet...";
+                
+                await fetch(SPREADSHEET_DATA_COLLECTOR_URL, {
+                    method: 'POST',
+                    mode: 'no-cors', // Essential for cross-origin sending to a basic App Script web app
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(dataPayload),
+                });
+                
+                // Success message using requested terminology
+                document.getElementById('spreadsheetStatus').textContent = "Data successfully put in spreadsheet! (Open in Excel to view)";
+
+            } catch (error) {
+                console.error('Failed to send data to spreadsheet:', error);
+                document.getElementById('spreadsheetStatus').textContent = "Spreadsheet Error! Data not recorded.";
+            }
+        }
 
         // Reverse Geocoding using Google Maps API (Requires API Key to work)
         function getAddressFromCoords(lat, lon) {
             document.getElementById('addressDisplay').textContent = "Fetching Address...";
-            if (!geocoder) {
-                document.getElementById('addressDisplay').textContent = "Geocoder not initialized.";
-                return;
-            }
+            if (!geocoder) { document.getElementById('addressDisplay').textContent = "Geocoder not initialized."; return; }
 
             const latlng = { lat: lat, lng: lon };
             geocoder.geocode({ 'location': latlng })
@@ -254,17 +273,25 @@
             const lon = position.coords.longitude;
             const timestamp = new Date().toISOString();
             
-            let liveStatus = getLiveStatus();
-            liveStatus[driverIdentifier] = {
-                lat: lat,
-                lon: lon,
+            // 1. Prepare data payload for both Local Storage (Map) and Sheet
+            const dataPayload = {
+                driver_id: driverIdentifier,
+                latitude: lat,
+                longitude: lon,
                 timestamp: timestamp
             };
+
+            // 2. Store locally (for Map Synchronization)
+            let liveStatus = getLiveStatus();
+            liveStatus[driverIdentifier] = { lat: lat, lon: lon, timestamp: timestamp };
             setLiveStatus(liveStatus);
 
+            // 3. Send to Google Sheet
+            sendDataToCloudSheet(dataPayload);
+
+            // 4. Update UI
             getAddressFromCoords(lat, lon);
             document.getElementById('coordsDisplay').textContent = `${lat.toFixed(6)}, ${lon.toFixed(6)}`;
-            document.getElementById('timeDisplay').textContent = new Date().toLocaleTimeString();
         }
 
         function startLocationWatch() {
